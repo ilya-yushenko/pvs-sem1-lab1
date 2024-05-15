@@ -44,6 +44,8 @@ TIM_HandleTypeDef htim2;
 TIM_HandleTypeDef htim3;
 
 /* USER CODE BEGIN PV */
+float led_frequency = 1.0f; // Initial frequency is 1 Hz
+uint32_t phase_shift = 500; // Initial phase shift is 180°
 /* USER CODE END PV */
 
 /* Private function prototypes -----------------------------------------------*/
@@ -67,14 +69,7 @@ void HAL_GPIO_EXTI_Callback(uint16_t GPIO_Pin)
 
 void HAL_TIM_PeriodElapsedCallback(TIM_HandleTypeDef *htim)
 {
-  if (htim->Instance == TIM2)
-  {
-	  HAL_GPIO_TogglePin(LED1_GPIO_Port, LED1_Pin);
-  }
-  else if (htim->Instance == TIM3)
-  {
-	  HAL_GPIO_TogglePin(LED2_GPIO_Port, LED2_Pin);
-  }
+
 }
 
 
@@ -276,6 +271,9 @@ static void MX_GPIO_Init(void)
   /*Configure GPIO pin Output Level */
   HAL_GPIO_WritePin(GPIOA, LED1_Pin|LED2_Pin, GPIO_PIN_RESET);
 
+  /*Configure GPIO pin Output Level */
+  HAL_GPIO_WritePin(LED_MODE_GPIO_Port, LED_MODE_Pin, GPIO_PIN_RESET);
+
   /*Configure GPIO pins : VCP_TX_Pin VCP_RX_Pin */
   GPIO_InitStruct.Pin = VCP_TX_Pin|VCP_RX_Pin;
   GPIO_InitStruct.Mode = GPIO_MODE_AF_PP;
@@ -290,6 +288,13 @@ static void MX_GPIO_Init(void)
   GPIO_InitStruct.Pull = GPIO_NOPULL;
   GPIO_InitStruct.Speed = GPIO_SPEED_FREQ_LOW;
   HAL_GPIO_Init(GPIOA, &GPIO_InitStruct);
+
+  /*Configure GPIO pin : LED_MODE_Pin */
+  GPIO_InitStruct.Pin = LED_MODE_Pin;
+  GPIO_InitStruct.Mode = GPIO_MODE_OUTPUT_PP;
+  GPIO_InitStruct.Pull = GPIO_NOPULL;
+  GPIO_InitStruct.Speed = GPIO_SPEED_FREQ_LOW;
+  HAL_GPIO_Init(LED_MODE_GPIO_Port, &GPIO_InitStruct);
 
   /*Configure GPIO pin : B1_Pin */
   GPIO_InitStruct.Pin = B1_Pin;
