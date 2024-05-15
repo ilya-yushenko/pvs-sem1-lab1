@@ -45,7 +45,6 @@ TIM_HandleTypeDef htim3;
 
 /* USER CODE BEGIN PV */
 float led_frequency = 1.0f; // Initial frequency is 1 Hz
-uint32_t phase_shift = 500; // Initial phase shift is 180°
 /* USER CODE END PV */
 
 /* Private function prototypes -----------------------------------------------*/
