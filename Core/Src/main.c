@@ -63,6 +63,7 @@ void HAL_GPIO_EXTI_Callback(uint16_t GPIO_Pin)
 {
   if (GPIO_Pin == B1_Pin)
   {
+	  HAL_GPIO_TogglePin(LED_MODE_GPIO_Port, LED_MODE_Pin);
 
   }
 }
