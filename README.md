@@ -1,1 +1,1 @@
-# pvs-course-project-2024
+# pvs-sem1-lab1
