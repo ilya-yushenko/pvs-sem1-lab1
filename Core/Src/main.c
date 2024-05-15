@@ -73,6 +73,10 @@ void HAL_TIM_PeriodElapsedCallback(TIM_HandleTypeDef *htim)
 	{
 		HAL_GPIO_TogglePin(LED1_GPIO_Port, LED1_Pin);
 	}
+	else if (htim->Instance == TIM3)
+	{
+		HAL_GPIO_TogglePin(LED2_GPIO_Port, LED2_Pin);
+	}
 }
 
 
