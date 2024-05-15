@@ -65,12 +65,22 @@ void HAL_GPIO_EXTI_Callback(uint16_t GPIO_Pin)
   {
 	  HAL_GPIO_TogglePin(LED_MODE_GPIO_Port, LED_MODE_Pin);
 
+	  // Stop timers
+	  HAL_TIM_Base_Stop_IT(&htim2);
+	  HAL_TIM_Base_Stop_IT(&htim3);
+
 	  HAL_GPIO_WritePin(LED1_GPIO_Port, LED1_Pin, GPIO_PIN_RESET);
 	  HAL_GPIO_WritePin(LED2_GPIO_Port, LED2_Pin, GPIO_PIN_RESET);
 
 	  // Switch between 180° and 90°
 	  phase_shift = (phase_shift == 500) ? 250 : 500;
 
+	  // Update TIM3 timer settings with new phase shift
+	  __HAL_TIM_SET_COUNTER(&htim3, phase_shift);
+
+	  // Restart timers
+	  HAL_TIM_Base_Start_IT(&htim2);
+	  HAL_TIM_Base_Start_IT(&htim3);
   }
 }
 
@@ -121,6 +131,8 @@ int main(void)
   MX_TIM2_Init();
   MX_TIM3_Init();
   /* USER CODE BEGIN 2 */
+
+  __HAL_TIM_SET_COUNTER(&htim3, phase_shift);
 
   HAL_TIM_Base_Start_IT(&htim2);
   HAL_TIM_Base_Start_IT(&htim3);
