@@ -65,6 +65,9 @@ void HAL_GPIO_EXTI_Callback(uint16_t GPIO_Pin)
   {
 	  HAL_GPIO_TogglePin(LED_MODE_GPIO_Port, LED_MODE_Pin);
 
+	  // Switch between 180° and 90°
+	  phase_shift = (phase_shift == 500) ? 250 : 500;
+
   }
 }
 
