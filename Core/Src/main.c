@@ -21,7 +21,8 @@
 
 /* Private includes ----------------------------------------------------------*/
 /* USER CODE BEGIN Includes */
-
+#include "stdio.h"
+#include "string.h"
 /* USER CODE END Includes */
 
 /* Private typedef -----------------------------------------------------------*/
@@ -45,16 +46,25 @@ TIM_HandleTypeDef htim2;
 UART_HandleTypeDef huart2;
 
 /* USER CODE BEGIN PV */
-#define NUM_LEDS 4                // Number of LEDs
-#define FULL_PERIOD 1000          // Full period in milliseconds (1 second)
-#define TIMER_PERIOD 250          // Timer period (250 ms)
-#define HALF_PERIOD (FULL_PERIOD / 2) // Half cycle (500 ms)
+#define NUM_LEDS 4                		// Number of LEDs
+#define FULL_PERIOD 1000          		// Full period in milliseconds (1 second)
+#define TIMER_PERIOD 250          		// Timer period (250 ms)
+#define HALF_PERIOD (FULL_PERIOD / 2) 	// Half cycle (500 ms)
 
-uint8_t ledStates[NUM_LEDS]; // Array for storing LED states
-uint16_t ledCounter = 0;     // LED cycling counter
-uint16_t phaseShift = HALF_PERIOD; // Initial phase shift (180 degrees)
+#define MIN_FREQUENCY 0.1				// Min frequency (0.1 Hz)
+#define MAX_FREQUENCY 9.9         		// Max frequency (9.9 Hz)
+#define RX_BUFFER_SIZE 16         		// UART receive buffer size
 
-uint8_t txBuffer[27] = "Welcome to BinaryUpdates!\n\r";
+uint8_t ledStates[NUM_LEDS];			// Array for storing LED states
+uint16_t ledCounter = 0;     			// LED cycling counter
+uint16_t phaseShift = HALF_PERIOD;		// Initial phase shift (180 degrees)
+
+float frequency = 1.0;      			// Starting frequency (1 Hz)
+
+uint8_t rxBuffer[RX_BUFFER_SIZE];
+uint8_t commandReceived = 0;
+uint8_t rxIndex = 0;
+
 /* USER CODE END PV */
 
 /* Private function prototypes -----------------------------------------------*/
@@ -68,6 +78,49 @@ static void MX_USART2_UART_Init(void);
 
 /* Private user code ---------------------------------------------------------*/
 /* USER CODE BEGIN 0 */
+void updateTimerPeriod() {
+	uint16_t timerPeriod = (uint16_t) (frequency * 1000); // Time period in milliseconds
+
+    TIM2->CR1 &= ~TIM_CR1_CEN;
+    TIM2->ARR = (timerPeriod / 4) -1; // We divide the period into 4 parts, since we have one full period of diode glow, which is 4 timer clocks
+    TIM2->EGR = TIM_EGR_UG;
+    TIM2->CR1 |= TIM_CR1_CEN;
+}
+
+void processCommand() {
+    char command[RX_BUFFER_SIZE];
+    strncpy(command, rxBuffer, RX_BUFFER_SIZE);
+    command[RX_BUFFER_SIZE - 1] = 0; // Guarantee a null character at the end
+
+    // Here is the command to restore the registry
+    for (uint8_t i = 0; i < strlen(command); i++) {
+        command[i] = tolower(command[i]);
+    }
+
+	if (rxIndex != commandReceived) {
+		double newFrequency;
+		if (sscanf(command, "f=%lf", &newFrequency) == 1) {
+			if (newFrequency >= MIN_FREQUENCY && newFrequency <= MAX_FREQUENCY) {
+				frequency = newFrequency;
+				updateTimerPeriod();
+				char message[32];
+				sprintf(message, "Frequency changed to %.1f Hz\r\n", frequency);
+				HAL_UART_Transmit(&huart2, (uint8_t*) message, strlen(message), HAL_MAX_DELAY);
+			} else {
+				char errorMessage[] = "Error: Frequency must be in the range from 0.1 to 9.9 Hz\r\n";
+				HAL_UART_Transmit(&huart2, (uint8_t*) errorMessage, strlen(errorMessage), HAL_MAX_DELAY);
+			}
+		} else {
+			char errorMessage[] = "Error: Invalid command format. Use the format 'F=x.x'\r\n";
+			HAL_UART_Transmit(&huart2, (uint8_t*) errorMessage, strlen(errorMessage), HAL_MAX_DELAY);
+		}
+	}
+
+    rxIndex = 0;
+    commandReceived = 0;
+}
+
+
 void HAL_GPIO_EXTI_Callback(uint16_t GPIO_Pin)
 {
 	if (GPIO_Pin == B1_Pin) {
@@ -109,7 +162,22 @@ void HAL_TIM_PeriodElapsedCallback(TIM_HandleTypeDef *htim)
 	}
 }
 
+void HAL_UART_RxCpltCallback(UART_HandleTypeDef *huart) {
+    if (huart->Instance == USART2) { // Check that this is an interrupt from the desired UART
+        rxBuffer[rxIndex++] = huart->Instance->RDR; // Write the received byte to the buffer
 
+        // Check if the received byte is a newline character
+        if (rxBuffer[rxIndex - 1] == '\n' || rxBuffer[rxIndex - 1] == '\r') {
+            rxBuffer[rxIndex - 1] = 0; // Replace the newline character with a null character
+            commandReceived = 1; // Set the flag that the command has been received
+            processCommand();
+        } else if (rxIndex == RX_BUFFER_SIZE - 1) {
+            rxIndex = 0; // Reset the buffer index if the buffer is full
+        }
+
+        HAL_UART_Receive_IT(&huart2, (uint8_t *)&rxBuffer[rxIndex], 1);
+    }
+}
 /* USER CODE END 0 */
 
 /**
@@ -146,16 +214,13 @@ int main(void)
   /* USER CODE BEGIN 2 */
 
   HAL_TIM_Base_Start_IT(&htim2);
-
+  HAL_UART_Receive_IT(&huart2, (uint8_t *)rxBuffer, 1);
   /* USER CODE END 2 */
 
   /* Infinite loop */
   /* USER CODE BEGIN WHILE */
-  while (1)
-  {
-	  HAL_UART_Transmit(&huart2, txBuffer, 27, 10);
-	  HAL_Delay(1000);
-    /* USER CODE END WHILE */
+  while (1) {
+		/* USER CODE END WHILE */
 
     /* USER CODE BEGIN 3 */
   }
