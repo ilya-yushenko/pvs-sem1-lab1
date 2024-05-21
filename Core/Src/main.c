@@ -55,16 +55,24 @@ UART_HandleTypeDef huart2;
 #define MAX_FREQUENCY 9.9         		// Max frequency (9.9 Hz)
 #define RX_BUFFER_SIZE 16         		// UART receive buffer size
 
-uint8_t ledStates[NUM_LEDS];			// Array for storing LED states
-uint16_t ledCounter = 0;     			// LED cycling counter
-uint16_t phaseShift = HALF_PERIOD;		// Initial phase shift (180 degrees)
+#define NUM_TASKS 3
+
+uint8_t led_states[NUM_LEDS];			// Array for storing LED states
+uint16_t led_counter = 0;     			// LED cycling counter
+uint16_t phase_shift = HALF_PERIOD;		// Initial phase shift (180 degrees)
 
 float frequency = 1.0;      			// Starting frequency (1 Hz)
 
-uint8_t rxBuffer[RX_BUFFER_SIZE];
-uint8_t commandReceived = 0;
-uint8_t rxIndex = 0;
+uint8_t rx_buffer[RX_BUFFER_SIZE];
+uint8_t command_received = 0;
+uint8_t rx_index = 0;
+volatile uint8_t btn_pressed_flag = 0;
 
+typedef struct {
+	void (*task_function)(void); // Указатель на функцию задачи
+	uint32_t period; // Период выполнения задачи
+	uint32_t last_execution_time; // Время последнего выполнения задачи
+} Task;
 /* USER CODE END PV */
 
 /* Private function prototypes -----------------------------------------------*/
@@ -73,23 +81,32 @@ static void MX_GPIO_Init(void);
 static void MX_TIM2_Init(void);
 static void MX_USART2_UART_Init(void);
 /* USER CODE BEGIN PFP */
-
+void Task_LEDs_Control(void);
+void Task_Command_Processing(void);
+void Task_Button_Handler(void);
+void Schedule_Tasks(void);
 /* USER CODE END PFP */
 
 /* Private user code ---------------------------------------------------------*/
 /* USER CODE BEGIN 0 */
-void updateTimerPeriod() {
-	uint16_t timerPeriod = (uint16_t) (frequency * 1000); // Time period in milliseconds
+Task tasks[NUM_TASKS] = {
+    {Task_LEDs_Control, 0, 0},
+    {Task_Command_Processing, 0, 0},
+    {Task_Button_Handler, 0, 0}
+};
+
+void updateTimerPeriod(void) {
+	uint16_t timer_period = (uint16_t) (frequency * 1000); // Time period in milliseconds
 
     TIM2->CR1 &= ~TIM_CR1_CEN;
-    TIM2->ARR = (timerPeriod / 4) -1; // We divide the period into 4 parts, since we have one full period of diode glow, which is 4 timer clocks
+    TIM2->ARR = (timer_period / 4) -1; // We divide the period into 4 parts, since we have one full period of diode glow, which is 4 timer clocks
     TIM2->EGR = TIM_EGR_UG;
     TIM2->CR1 |= TIM_CR1_CEN;
 }
 
-void processCommand() {
+void Task_Command_Processing(void) {
     char command[RX_BUFFER_SIZE];
-    strncpy(command, rxBuffer, RX_BUFFER_SIZE);
+    strncpy(command, rx_buffer, RX_BUFFER_SIZE);
     command[RX_BUFFER_SIZE - 1] = 0; // Guarantee a null character at the end
 
     // Here is the command to restore the registry
@@ -97,27 +114,75 @@ void processCommand() {
         command[i] = tolower(command[i]);
     }
 
-	if (rxIndex != commandReceived) {
-		double newFrequency;
-		if (sscanf(command, "f=%lf", &newFrequency) == 1) {
-			if (newFrequency >= MIN_FREQUENCY && newFrequency <= MAX_FREQUENCY) {
-				frequency = newFrequency;
+	if (rx_index != command_received) {
+		double new_frequency;
+		if (sscanf(command, "f=%lf", &new_frequency) == 1) {
+			if (new_frequency >= MIN_FREQUENCY && new_frequency <= MAX_FREQUENCY) {
+				frequency = new_frequency;
 				updateTimerPeriod();
 				char message[32];
 				sprintf(message, "Frequency changed to %.1f Hz\r\n", frequency);
 				HAL_UART_Transmit(&huart2, (uint8_t*) message, strlen(message), HAL_MAX_DELAY);
 			} else {
-				char errorMessage[] = "Error: Frequency must be in the range from 0.1 to 9.9 Hz\r\n";
-				HAL_UART_Transmit(&huart2, (uint8_t*) errorMessage, strlen(errorMessage), HAL_MAX_DELAY);
+				char error_message[] = "Error: Frequency must be in the range from 0.1 to 9.9 Hz\r\n";
+				HAL_UART_Transmit(&huart2, (uint8_t*) error_message, strlen(error_message), HAL_MAX_DELAY);
 			}
 		} else {
-			char errorMessage[] = "Error: Invalid command format. Use the format 'F=x.x'\r\n";
-			HAL_UART_Transmit(&huart2, (uint8_t*) errorMessage, strlen(errorMessage), HAL_MAX_DELAY);
+			char error_message[] = "Error: Invalid command format. Use the format 'F=x.x'\r\n";
+			HAL_UART_Transmit(&huart2, (uint8_t*) error_message, strlen(error_message), HAL_MAX_DELAY);
 		}
 	}
 
-    rxIndex = 0;
-    commandReceived = 0;
+    rx_index = 0;
+    command_received = 0;
+}
+
+void Task_LEDs_Control(void) {
+    for (int i = 0; i < NUM_LEDS; i++) {
+        uint16_t offset = i * phase_shift; // Phase offset for each LED
+        uint16_t phase = (led_counter + offset) % FULL_PERIOD; // LED Phase Calculation
+
+        // Checking the condition for turning the LED on/off
+        if (phase < HALF_PERIOD)
+        {
+            led_states[i] = 1; // Turn on LED
+        }
+        else
+        {
+            led_states[i] = 0; // Turn off LED
+        }
+    }
+
+    led_counter += TIMER_PERIOD; // Increment the counter by the timer period for the next iteration
+    if (led_counter >= FULL_PERIOD)
+    {
+        led_counter = 0; // Reset the counter after a full period
+    }
+
+    // LED control
+    HAL_GPIO_WritePin(LED1_GPIO_Port, LED1_Pin, led_states[0] ? GPIO_PIN_SET : GPIO_PIN_RESET);
+    HAL_GPIO_WritePin(LED2_GPIO_Port, LED2_Pin, led_states[1] ? GPIO_PIN_SET : GPIO_PIN_RESET);
+    HAL_GPIO_WritePin(LED3_GPIO_Port, LED3_Pin, led_states[2] ? GPIO_PIN_SET : GPIO_PIN_RESET);
+    HAL_GPIO_WritePin(LED4_GPIO_Port, LED4_Pin, led_states[3] ? GPIO_PIN_SET : GPIO_PIN_RESET);
+}
+
+void Task_Button_Handler(void) {
+    if (btn_pressed_flag)
+    {
+        phase_shift = (phase_shift == HALF_PERIOD) ? HALF_PERIOD / 2 : HALF_PERIOD;
+        btn_pressed_flag = 0;
+    }
+}
+
+void Schedule_Tasks(void) {
+	uint32_t currentTime = HAL_GetTick();
+
+	for (int i = 0; i < NUM_TASKS; i++) {
+		if (tasks[i].period == 0 || currentTime - tasks[i].last_execution_time >= tasks[i].period) {
+			tasks[i].task_function();
+			tasks[i].last_execution_time = currentTime;
+		}
+	}
 }
 
 
@@ -125,57 +190,32 @@ void HAL_GPIO_EXTI_Callback(uint16_t GPIO_Pin)
 {
 	if (GPIO_Pin == B1_Pin) {
 		HAL_GPIO_TogglePin(LED_MODE_GPIO_Port, LED_MODE_Pin);
-		if (phaseShift == HALF_PERIOD) {
-			phaseShift = HALF_PERIOD / 2; // Change phase change to 90 degrees
-		} else {
-			phaseShift = HALF_PERIOD; // Returning the initial phase shift (180 degrees)
-		}
+	    btn_pressed_flag = 1;
   }
 }
 
 void HAL_TIM_PeriodElapsedCallback(TIM_HandleTypeDef *htim)
 {
-	if (htim->Instance == TIM2) {
-		for (int i = 0; i < NUM_LEDS; i++) {
-			uint16_t offset = i * phaseShift; // Phase offset for each LED
-			uint16_t phase = (ledCounter + offset) % FULL_PERIOD; // LED Phase Calculation
-
-			// Checking the condition for turning the LED on/off
-			if (phase < HALF_PERIOD) {
-				ledStates[i] = 1; // Turn on LED
-			} else {
-				ledStates[i] = 0; // Turn off LED
-			}
-		}
-
-		ledCounter += TIMER_PERIOD; // Increment the counter by the timer period for the next iteration
-		if (ledCounter >= FULL_PERIOD) {
-			ledCounter = 0; // Reset the counter after a full period
-		}
-
-		// LED control
-		HAL_GPIO_WritePin(LED1_GPIO_Port, LED1_Pin, ledStates[0] ? GPIO_PIN_SET : GPIO_PIN_RESET);
-		HAL_GPIO_WritePin(LED2_GPIO_Port, LED2_Pin, ledStates[1] ? GPIO_PIN_SET : GPIO_PIN_RESET);
-		HAL_GPIO_WritePin(LED3_GPIO_Port, LED3_Pin, ledStates[2] ? GPIO_PIN_SET : GPIO_PIN_RESET);
-		HAL_GPIO_WritePin(LED4_GPIO_Port, LED4_Pin, ledStates[3] ? GPIO_PIN_SET : GPIO_PIN_RESET);
-
+	if (htim->Instance == TIM2)
+	{
+	    tasks[0].task_function();
 	}
 }
 
 void HAL_UART_RxCpltCallback(UART_HandleTypeDef *huart) {
     if (huart->Instance == USART2) { // Check that this is an interrupt from the desired UART
-        rxBuffer[rxIndex++] = huart->Instance->RDR; // Write the received byte to the buffer
+        rx_buffer[rx_index++] = huart->Instance->RDR; // Write the received byte to the buffer
 
         // Check if the received byte is a newline character
-        if (rxBuffer[rxIndex - 1] == '\n' || rxBuffer[rxIndex - 1] == '\r') {
-            rxBuffer[rxIndex - 1] = 0; // Replace the newline character with a null character
-            commandReceived = 1; // Set the flag that the command has been received
-            processCommand();
-        } else if (rxIndex == RX_BUFFER_SIZE - 1) {
-            rxIndex = 0; // Reset the buffer index if the buffer is full
+        if (rx_buffer[rx_index - 1] == '\n' || rx_buffer[rx_index - 1] == '\r') {
+            rx_buffer[rx_index - 1] = 0; // Replace the newline character with a null character
+            command_received = 1; // Set the flag that the command has been received
+            tasks[1].task_function();
+        } else if (rx_index == RX_BUFFER_SIZE - 1) {
+            rx_index = 0; // Reset the buffer index if the buffer is full
         }
 
-        HAL_UART_Receive_IT(&huart2, (uint8_t *)&rxBuffer[rxIndex], 1);
+        HAL_UART_Receive_IT(&huart2, (uint8_t *)&rx_buffer[rx_index], 1);
     }
 }
 /* USER CODE END 0 */
@@ -214,14 +254,14 @@ int main(void)
   /* USER CODE BEGIN 2 */
 
   HAL_TIM_Base_Start_IT(&htim2);
-  HAL_UART_Receive_IT(&huart2, (uint8_t *)rxBuffer, 1);
+  HAL_UART_Receive_IT(&huart2, (uint8_t *)rx_buffer, 1);
   /* USER CODE END 2 */
 
   /* Infinite loop */
   /* USER CODE BEGIN WHILE */
   while (1) {
 		/* USER CODE END WHILE */
-
+      tasks[2].task_function();
     /* USER CODE BEGIN 3 */
   }
   /* USER CODE END 3 */
